@@ -4,48 +4,57 @@ from bs4 import BeautifulSoup
 import google.generativeai as genai
 from PIL import Image
 
-# הגדרת ה"עיניים" של גוגל (AI)
-try:
-    api_key = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
-except:
-    st.error("שכחת להוסיף את ה-API Key ב-Secrets!")
-
+# כותרת האפליקציה
 st.set_page_config(page_title="מעריך קלפים חכם", page_icon="🏀")
-st.title("🪄 מעריך קלפים אוטומטי")
 
-uploaded_file = st.file_uploader("העלה תמונה של קלף ספורט (או לוט)", type=["jpg", "png", "jpeg"])
+# ניסיון חיבור ל-API
+if "GEMINI_API_KEY" not in st.secrets:
+    st.error("שגיאה: לא נמצא מפתח API ב-Secrets של Streamlit!")
+else:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+
+st.title("🪄 מעריך קלפים אוטומטי")
+st.write("צלם קלף ספורט וקבל הערכת שווי מבוססת איביי")
+
+uploaded_file = st.file_uploader("העלה תמונה...", type=["jpg", "png", "jpeg"])
 
 if uploaded_file:
     img = Image.open(uploaded_file)
-    st.image(img, caption="התמונה שהועלתה", width=300)
+    st.image(img, caption="הקלף שנקלט", width=300)
     
     if st.button("זהה קלף והצג מחיר"):
-        with st.spinner("ה-AI מזהה את הקלפים..."):
-            # שלב 1: זיהוי הקלף מהתמונה
-            prompt = "Identify the sports cards in this image. For each card, provide the player name, year, set name, and card number. format as a search query for eBay."
-            response = model.generate_content([prompt, img])
-            card_name = response.text.strip()
-            
-            st.info(f"זוהה: {card_name}")
-            
-            # שלב 2: חיפוש באיביי (פונקציה קיימת)
-            search_url = f"https://www.ebay.com/sch/i.html?_nkw={card_name.replace(' ', '+')}&LH_Sold=1&LH_Complete=1"
-            headers = {"User-Agent": "Mozilla/5.0"}
-            res = requests.get(search_url, headers=headers)
-            soup = BeautifulSoup(res.text, 'html.parser')
-            
-            prices = []
-            for item in soup.find_all('span', {'class': 's-item__price'}):
-                p_text = item.get_text().replace('$', '').replace(',', '').split(' ')[0]
-                try: prices.append(float(p_text))
-                except: continue
-            
-            if prices:
-                avg_usd = sum(prices[:5]) / len(prices[:5])
-                st.metric("הערכת שווי (שקלים)", f"₪{avg_usd * 3.72:.2f}")
-                st.write(f"מבוסס על ממוצע של {len(prices[:5])} מכירות אחרונות ב-eBay.")
-            else:
-                st.error("לא הצלחתי למצוא מחירי מכירה אחרונים. נסה תמונה ברורה יותר.")
-
+        try:
+            with st.spinner("הבינה המלאכותית מנתחת את התמונה..."):
+                # שימוש במודל יציב
+                model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                prompt = "Identify this sports card. Tell me the player name, year, and set. Give me ONLY a short search string for eBay."
+                
+                response = model.generate_content([prompt, img])
+                search_query = response.text.strip()
+                
+                st.subheader(f"🔍 מחפש באיביי: {search_query}")
+                
+                # חיפוש באיביי
+                url = f"https://www.ebay.com/sch/i.html?_nkw={search_query.replace(' ', '+')}&LH_Sold=1&LH_Complete=1"
+                headers = {"User-Agent": "Mozilla/5.0"}
+                res = requests.get(url, headers=headers)
+                soup = BeautifulSoup(res.text, 'html.parser')
+                
+                prices = []
+                for item in soup.find_all('span', {'class': 's-item__price'}):
+                    p_text = item.get_text().replace('$', '').replace(',', '').split(' ')[0]
+                    try:
+                        prices.append(float(p_text))
+                    except:
+                        continue
+                
+                if prices:
+                    avg_usd = sum(prices[:5]) / len(prices[:5])
+                    st.success(f"הערכת שווי: ₪{avg_usd * 3.75:.2f}")
+                    st.write(f"מבוסס על ממוצע מכירות אחרונות בארה\"ב.")
+                else:
+                    st.warning("לא נמצאו מכירות אחרונות מדויקות. נסה לצלם מקרוב יותר.")
+                    
+        except Exception as e:
+            st.error(f"קרתה שגיאה: {e}")
+            st.info("טיפ: וודא שה-API Key תקין ושהתמונה ברורה.")
