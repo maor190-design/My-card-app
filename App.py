@@ -4,63 +4,55 @@ from bs4 import BeautifulSoup
 import google.generativeai as genai
 from PIL import Image
 
-# הגדרות דף
-st.set_page_config(page_title="מעריך קלפים", page_icon="🏆")
-st.title("🏆 מעריך קלפי ספורט (eBay Sold)")
+st.set_page_config(page_title="Card Evaluator", layout="centered")
+st.title("🏀 מעריך קלפים אוטומטי")
 
-# בדיקת מפתח
+# בדיקה בסיסית של המפתח
 if "GEMINI_API_KEY" not in st.secrets:
-    st.error("חסר מפתח API ב-Secrets!")
+    st.error("עצור! המפתח לא הוגדר ב-Secrets. חזור להגדרות ב-Streamlit והוסף אותו.")
     st.stop()
 
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-uploaded_file = st.file_uploader("העלה תמונה של קלף...", type=["jpg", "png", "jpeg"])
+uploaded_file = st.file_uploader("העלה תמונה", type=["jpg", "png", "jpeg"])
 
 if uploaded_file:
     img = Image.open(uploaded_file)
-    st.image(img, width=300)
+    st.image(img, width=250)
     
-    if st.button("זהה קלף ומצא מחיר"):
-        # שלב 1: זיהוי הקלף (בעזרת גוגל)
-        with st.status("שלב 1: הבינה המלאכותית מזהה את הקלף...") as status:
-            try:
+    if st.button("בצע זיהוי והערכה"):
+        # שלב 1: ניסיון זיהוי עם המודל הכי בטוח
+        search_query = ""
+        try:
+            with st.spinner("מזהה את הקלף..."):
                 model = genai.GenerativeModel('gemini-1.5-flash')
-                prompt = "Identify this sports card. Return ONLY a search string for eBay sold listings. Example: '2023 Topps Lamine Yamal 27'"
-                response = model.generate_content([prompt, img])
+                response = model.generate_content(["Identify this sports card player, year and set. Return only a search string.", img])
                 search_query = response.text.strip().replace('*', '')
-                st.write(f"הקלף זוהה כ: **{search_query}**")
-                status.update(label="זיהוי הושלם!", state="complete")
-            except Exception as e:
-                st.error(f"שגיאה בזיהוי: {e}")
-                st.stop()
+        except Exception as e:
+            st.warning("הזיהוי האוטומטי נכשל. נסה להקליד את שם הקלף למטה.")
+            search_query = st.text_input("שם הקלף (למשל: Lamine Yamal 2024 Topps):")
 
-        # שלב 2: חיפוש ב-eBay (הקוד שלי מבצע את החיפוש)
-        with st.spinner(f"שלב 2: מחפש מכירות אחרונות של '{search_query}' ב-eBay..."):
+        if search_query:
+            st.info(f"🔎 מחפש ב-eBay: {search_query}")
+            
+            # שלב 2: סריקת eBay (גרסה משופרת)
             try:
-                # כתובת חיפוש למכירות שהסתיימו בלבד
                 url = f"https://www.ebay.com/sch/i.html?_nkw={search_query.replace(' ', '+')}&LH_Sold=1&LH_Complete=1"
-                res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                res = requests.get(url, headers=headers)
                 soup = BeautifulSoup(res.text, 'html.parser')
                 
                 prices = []
                 for item in soup.find_all('span', {'class': 's-item__price'}):
-                    try:
-                        p = item.get_text().replace('$', '').replace(',', '').split(' ')[0]
-                        prices.append(float(p))
+                    p = item.get_text().replace('$', '').replace(',', '').split(' ')[0]
+                    try: prices.append(float(p))
                     except: continue
                 
                 if prices:
-                    # חישוב ממוצע (מתעלם מהתוצאה הראשונה שלפעמים היא זבל של איביי)
-                    valid_prices = prices[1:10] if len(prices) > 1 else prices
-                    avg_usd = sum(valid_prices) / len(valid_prices)
-                    ils_price = avg_usd * 3.75 # שער המרה
-                    
-                    st.success(f"### הערכת שווי: ₪{ils_price:,.2f}")
-                    st.metric("מחיר ממוצע בדולר", f"${avg_usd:.2f}")
-                    st.write(f"המחיר מבוסס על {len(valid_prices)} מכירות אחרונות ב-eBay.")
-                    st.caption(f"[צפה בתוצאות החיפוש המקוריות ב-eBay]({url})")
+                    avg_usd = sum(prices[1:6]) / len(prices[1:6]) if len(prices) > 1 else prices[0]
+                    st.success(f"💰 הערכת שווי: ₪{avg_usd * 3.72:,.2f}")
+                    st.metric("מחיר דולרי ממוצע", f"${avg_usd:.2f}")
                 else:
-                    st.warning("הקלף זוהה, אך לא נמצאו מכירות שלו ב-eBay. נסה תמונה ברורה יותר.")
-            except Exception as e:
-                st.error(f"שגיאה בחיפוש המחיר: {e}")
+                    st.error("לא נמצאו מכירות אחרונות ב-eBay. נסה לדייק את השם.")
+            except:
+                st.error("שגיאה בגישה לנתוני eBay.")
