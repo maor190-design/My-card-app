@@ -8,38 +8,36 @@ from PIL import Image
 st.set_page_config(page_title="מעריך קלפים", page_icon="🏆")
 st.title("🏆 מעריך קלפי ספורט אוטומטי")
 
-# בדיקה שהמפתח קיים ב-Secrets
+# בדיקת מפתח API
 if "GEMINI_API_KEY" not in st.secrets:
-    st.error("חסר מפתח API ב-Secrets! וודא שהגדרת אותו בפורמט: GEMINI_API_KEY = '...'")
+    st.error("חסר מפתח API ב-Secrets!")
     st.stop()
 
-# הגדרת ה-AI עם המפתח שלך
+# חיבור למנוע ה-AI
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-uploaded_file = st.file_uploader("העלה תמונה של קלף או לוט...", type=["jpg", "png", "jpeg"])
+uploaded_file = st.file_uploader("העלה תמונה של קלף...", type=["jpg", "png", "jpeg"])
 
 if uploaded_file:
     img = Image.open(uploaded_file)
-    st.image(img, width=300, caption="התמונה שנקלטה")
+    st.image(img, width=300, caption="הקלף שנקלט")
     
     if st.button("זהה והערך שווי"):
         try:
-            with st.spinner("המערכת מזהה את הקלפים..."):
-                # שימוש בשם המודל הכי סטנדרטי למניעת שגיאת 404
+            with st.spinner("המערכת מזהה את הקלף..."):
+                # ניסיון שימוש בשם המודל המדויק ביותר
                 model = genai.GenerativeModel('gemini-1.5-flash')
                 
-                # הנחיה לזיהוי קלף בודד או לוט (חבילה)
-                prompt = "Identify the sports cards in this image. If it is one card, give player name, year, and set. If it is a lot, identify the main cards. Return ONLY a concise search string for eBay sold listings."
-                
+                prompt = "Identify this sports card. Provide ONLY the player name, year, and set for an eBay search. Example: '2023 Topps Lamine Yamal Barcelona'"
                 response = model.generate_content([prompt, img])
                 search_query = response.text.strip().replace('*', '').replace('"', '')
                 
                 st.info(f"🔎 זוהה: {search_query}")
                 
-                # חיפוש באיביי (מכירות שהסתיימו - Sold)
-                ebay_url = f"https://www.ebay.com/sch/i.html?_nkw={search_query.replace(' ', '+')}&LH_Sold=1&LH_Complete=1"
+                # חיפוש באיביי - רק מכירות שהסתיימו (Sold)
+                url = f"https://www.ebay.com/sch/i.html?_nkw={search_query.replace(' ', '+')}&LH_Sold=1&LH_Complete=1"
                 headers = {"User-Agent": "Mozilla/5.0"}
-                res = requests.get(ebay_url, headers=headers)
+                res = requests.get(url, headers=headers)
                 soup = BeautifulSoup(res.text, 'html.parser')
                 
                 prices = []
@@ -50,17 +48,17 @@ if uploaded_file:
                     except: continue
                 
                 if prices:
-                    # חישוב ממוצע של המכירות האחרונות (מדלגים על התוצאה הראשונה שהיא לעיתים פרסומת)
+                    # חישוב ממוצע של המכירות האחרונות
                     relevant_prices = prices[1:6] if len(prices) > 1 else prices
                     avg_usd = sum(relevant_prices) / len(relevant_prices)
                     ils_price = avg_usd * 3.75 # המרה לשקלים
                     
                     st.success(f"✅ הערכת שווי: ₪{ils_price:,.2f}")
-                    st.metric("מחיר ממוצע (דולר)", f"${avg_usd:.2f}")
-                    st.write(f"מבוסס על מחירי 'Last Sold' באיביי.")
+                    st.metric("מחיר ממוצע בדולר", f"${avg_usd:.2f}")
+                    st.write("מבוסס על מכירות אחרונות ב-eBay (Sold Listings).")
                 else:
-                    st.warning("הקלף זוהה, אך לא נמצאו מכירות אחרונות שתואמות בדיוק. נסה תמונה ברורה יותר.")
+                    st.warning("הקלף זוהה, אך לא נמצאו מכירות אחרונות. נסה לדייק את שם הסט.")
                     
         except Exception as e:
-            st.error(f"אופס, קרתה שגיאה טכנית: {str(e)}")
-            st.info("אם השגיאה נמשכת, נסה לרענן את דף האפליקציה.")
+            st.error(f"קרתה שגיאה: {str(e)}")
+            st.info("אם מופיעה שגיאת 404, וודא שקובץ ה-requirements ב-GitHub מעודכן.")
